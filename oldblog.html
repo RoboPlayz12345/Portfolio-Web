@@ -208,7 +208,6 @@
 <li><a href="index.html#projects">Projects</a></li>
 <li><a href="index.html#education">Education</a></li>
 <li><a href="blog.html" class="active">Blog</a></li>
-<li><a href="admin.html"></i> Admin</a></li>
 <li><a href="index.html#contact">Contact</a></li>
 </ul>
 <div class="nav-actions">
@@ -260,46 +259,24 @@ document.querySelectorAll('.nav-menu a').forEach(link => {
 });
 
 
-/* === LOAD POSTS FROM GITHUB ===  */
+/* === DYNAMIC POSTS FROM GITHUB JSON ===  https://raw.githubusercontent.com/RoboPlayz12345/blog-connect/main/posts.json */
 
-const GITHUB_REPO = "RoboPlayz12345/blog-connect";
-const GITHUB_FILE = "posts.json";
+const GITHUB_JSON_URL = "https://raw.githubusercontent.com/RoboPlayz12345/blog-connect/main/posts.json";
 
 let allPosts = [];
 
 async function loadPosts() {
     try {
-        // Try loading from GitHub raw URL first
-        const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/${GITHUB_FILE}`;
-        const res = await fetch(GITHUB_RAW_URL + "?t=" + new Date().getTime());
-        
-        if (res.ok) {
-            const posts = await res.json();
-            allPosts = posts.filter(p => p.Published);
-            renderPosts(allPosts);
-        } else {
-            throw new Error(`GitHub HTTP error: ${res.status}`);
-        }
-    } catch (ghErr) {
-        console.log("GitHub not available, trying localStorage:", ghErr.message);
-        
-        // Fallback to localStorage
-        try {
-            const localPosts = localStorage.getItem('blogPosts');
-            if (localPosts) {
-                allPosts = JSON.parse(localPosts).filter(p => p.Published);
-                renderPosts(allPosts);
-            } else {
-                showNoPosts();
-            }
-        } catch (localErr) {
-            showNoPosts();
-        }
-    }
-}
+        const res = await fetch(GITHUB_JSON_URL + "?t=" + new Date().getTime());
+        if(!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        const posts = await res.json();
 
-function showNoPosts() {
-    document.querySelector('.blog-posts').innerHTML = "<p style='text-align: center; color: var(--text-dim); padding: 2rem;'><i class='fas fa-inbox' style='font-size: 2rem; display: block; margin-bottom: 1rem;'></i>No posts yet. <a href='admin.html' style='color: var(--accent); text-decoration: underline;'>Create your first post in the admin panel</a></p>";
+        allPosts = posts.filter(p => p.Published);
+        renderPosts(allPosts);
+    } catch (err) {
+        document.querySelector('.blog-posts').innerHTML = "<p style='color:red;'>Error loading posts. Make sure your JSON raw URL is correct.</p>";
+        console.error("Error fetching posts:", err);
+    }
 }
 
 function renderPosts(posts) {
@@ -307,14 +284,13 @@ function renderPosts(posts) {
     container.innerHTML = "";
 
     if(posts.length === 0){
-        container.innerHTML = "<p style='text-align: center; color: var(--text-dim); padding: 2rem;'><i class='fas fa-inbox' style='font-size: 2rem; display: block; margin-bottom: 1rem;'></i>No posts yet. <a href='admin.html' style='color: var(--accent); text-decoration: underline;'>Create your first post in the admin panel</a></p>";
+        container.innerHTML = "<p>No posts found.</p>";
         return;
     }
 
     posts.forEach((post, index) => {
         container.innerHTML += `
         <div class="blog-post-preview" onclick="showPost(${index})">
-            ${post.Image ? `<img src="${post.Image}" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px; margin-bottom: 1rem;">` : ''}
             <div class="blog-meta">
                 <span class="blog-date"><i class="fas fa-calendar"></i> ${post.Date}</span>
                 <span class="blog-category">${post.Category}</span>
@@ -335,7 +311,6 @@ function showPost(index) {
         <a href="#" class="back-btn" onclick="renderPosts(allPosts); return false;">
             <i class="fas fa-arrow-left"></i> Back to Posts
         </a>
-        ${post.Image ? `<img src="${post.Image}" style="width: 100%; max-height: 400px; object-fit: cover; border-radius: 8px; margin-bottom: 2rem;">` : ''}
         <h2>${post.Name}</h2>
         <div class="blog-meta">
             <span class="blog-date"><i class="fas fa-calendar"></i> ${post.Date}</span>

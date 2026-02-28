@@ -5,6 +5,7 @@ exports.handler = async (event) => {
     }
 
     const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
     const GITHUB_REPO = "RoboPlayz12345/blog-connect";
     const GITHUB_FILE = "posts.json";
     const [owner, repo] = GITHUB_REPO.split("/");
@@ -18,7 +19,21 @@ exports.handler = async (event) => {
     }
 
     try {
-        const { posts } = JSON.parse(event.body);
+        const { posts, password, checkOnly } = JSON.parse(event.body);
+
+        // Check password against Netlify environment variable
+        if (password !== ADMIN_PASSWORD) {
+            return {
+                statusCode: 401,
+                body: JSON.stringify({ error: "Incorrect password" })
+            };
+        }
+
+        // If this is just a login check, return success without touching GitHub
+        if (checkOnly) {
+            return { statusCode: 200, body: JSON.stringify({ success: true }) };
+        }
+
         const content = btoa(unescape(encodeURIComponent(JSON.stringify(posts, null, 2))));
 
         // Get current file SHA

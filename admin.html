@@ -494,8 +494,8 @@
 </div>
 
 <script>
+const ADMIN_PASSWORD = "robo123";
 let allPosts = [];
-let sessionPassword = "";
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('postDate').valueAsDate = new Date();
@@ -525,33 +525,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-async function loginAdmin() {
+function loginAdmin() {
     const password = document.getElementById('passwordInput').value;
-    const btn = document.querySelector('.login-btn');
-    btn.textContent = 'Logging in...';
-    btn.disabled = true;
 
-    // Verify password against the Netlify env variable by doing a test call
-    const res = await fetch('/.netlify/functions/update-posts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ posts: null, password: password, checkOnly: true })
-    });
-
-    btn.textContent = 'Login';
-    btn.disabled = false;
-
-    if (res.status === 401) {
+    if (password === ADMIN_PASSWORD) {
+        localStorage.setItem('adminLoggedIn', 'true');
+        showDashboard();
+        loadPosts();
+        showMessage('Logged in successfully!', 'success');
+    } else {
         showMessage('Incorrect password', 'error');
         document.getElementById('passwordInput').value = '';
-        return;
     }
-
-    sessionPassword = password;
-    localStorage.setItem('adminLoggedIn', 'true');
-    showDashboard();
-    loadPosts();
-    showMessage('Logged in successfully!', 'success');
 }
 
 function logoutAdmin() {
@@ -637,7 +622,7 @@ async function saveToGitHub(postsArray) {
     const res = await fetch('/.netlify/functions/update-posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ posts: postsArray, password: sessionPassword })
+        body: JSON.stringify({ posts: postsArray })
     });
 
     if (!res.ok) {

@@ -25,7 +25,6 @@ exports.handler = async (event) => {
 
     try {
         const { posts } = JSON.parse(event.body);
-        
         if (!posts || !Array.isArray(posts)) {
             return {
                 statusCode: 400,
@@ -43,18 +42,25 @@ exports.handler = async (event) => {
 
         const content = btoa(unescape(encodeURIComponent(JSON.stringify(sanitizedPosts, null, 2))));
 
-        // Get current file SHA
+        // Get current file SHA and previous images
         let sha = "";
+        let previousImages = [];
         const getRes = await fetch(apiUrl, {
             headers: {
                 "Authorization": `token ${GITHUB_TOKEN}`,
                 "Accept": "application/vnd.github.v3+json"
             }
         });
-        
         if (getRes.ok) {
             const data = await getRes.json();
             sha = data.sha;
+            try {
+                // Parse previous posts.json to get old images
+                const oldPosts = JSON.parse(decodeURIComponent(escape(atob(data.content.replace(/\n/g, '')))));
+                previousImages = oldPosts.map(post => post.Image).filter(url => url && url.startsWith('http'));
+            } catch (e) {
+                previousImages = [];
+            }
         } else if (getRes.status !== 404) {
             // 404 is OK (file doesn't exist yet), other errors are problems
             const err = await getRes.json();
@@ -65,6 +71,48 @@ exports.handler = async (event) => {
                     details: err.message 
                 })
             };
+        }
+
+        // Find images to delete (in previousImages but not in sanitizedPosts)
+        const currentImages = sanitizedPosts.map(post => post.Image).filter(url => url && url.startsWith('http'));
+        const imagesToDelete = previousImages.filter(url => !currentImages.includes(url));
+
+        // Helper to extract GitHub file path from image URL
+        function getImagePathFromUrl(url) {
+            // Example: https://raw.githubusercontent.com/owner/repo/main/images/12345-filename.jpg
+            const match = url.match(/githubusercontent.com\/[\w-]+\/[\w-]+\/main\/(.+)$/);
+            return match ? match[1] : null;
+        }
+
+        // Delete images from GitHub
+        for (const imageUrl of imagesToDelete) {
+            const imagePath = getImagePathFromUrl(imageUrl);
+            if (!imagePath) continue;
+            const imageApiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${imagePath}`;
+            // Get SHA for the image file
+            const imageRes = await fetch(imageApiUrl, {
+                headers: {
+                    "Authorization": `token ${GITHUB_TOKEN}`,
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            });
+            if (imageRes.ok) {
+                const imageData = await imageRes.json();
+                const delRes = await fetch(imageApiUrl, {
+                    method: "DELETE",
+                    headers: {
+                        "Authorization": `token ${GITHUB_TOKEN}`,
+                        "Accept": "application/vnd.github.v3+json",
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        message: `Delete unused blog image - ${new Date().toLocaleString()}`,
+                        sha: imageData.sha,
+                        branch: "main"
+                    })
+                });
+                // Optionally, check delRes.ok and log errors
+            }
         }
 
         // Update or create the file on GitHub
@@ -100,7 +148,8 @@ exports.handler = async (event) => {
             body: JSON.stringify({ 
                 success: true,
                 message: "Posts updated successfully",
-                commit: result.commit.sha
+                commit: result.commit.sha,
+                imagesDeleted: imagesToDelete
             })
         };
 

@@ -21,12 +21,24 @@ exports.handler = async (event) => {
     }
 
     try {
-        const { imageData, fileName } = JSON.parse(event.body);
-
-        if (!imageData || !fileName) {
+        // Debug: log incoming event
+        console.log("Received event:", JSON.stringify(event));
+        let imageData, fileName;
+        try {
+            ({ imageData, fileName } = JSON.parse(event.body));
+        } catch (parseErr) {
+            console.error("Failed to parse event.body:", event.body, parseErr);
             return {
                 statusCode: 400,
-                body: JSON.stringify({ error: "Missing imageData or fileName" })
+                body: JSON.stringify({ error: "Invalid JSON in request body", details: parseErr.message })
+            };
+        }
+
+        if (!imageData || !fileName) {
+            console.error("Missing imageData or fileName", { imageData, fileName });
+            return {
+                statusCode: 400,
+                body: JSON.stringify({ error: "Missing imageData or fileName", imageData, fileName })
             };
         }
 
@@ -40,6 +52,9 @@ exports.handler = async (event) => {
         const cleanFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
         const uniqueFileName = `images/${timestamp}-${cleanFileName}`;
         const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${uniqueFileName}`;
+
+        // Debug: log upload details
+        console.log("Uploading to GitHub:", { apiUrl, uniqueFileName });
 
         // Upload image to GitHub
         const uploadRes = await fetch(apiUrl, {
@@ -57,12 +72,19 @@ exports.handler = async (event) => {
         });
 
         if (!uploadRes.ok) {
-            const err = await uploadRes.json();
+            let err;
+            try {
+                err = await uploadRes.json();
+            } catch (jsonErr) {
+                err = { message: "Failed to parse error response", raw: await uploadRes.text() };
+            }
+            console.error("GitHub upload failed", { status: uploadRes.status, err });
             return {
                 statusCode: 500,
                 body: JSON.stringify({ 
                     error: err.message || "Failed to upload image to GitHub",
-                    details: err
+                    details: err,
+                    status: uploadRes.status
                 })
             };
         }
@@ -70,20 +92,26 @@ exports.handler = async (event) => {
         const uploadData = await uploadRes.json();
         const imageUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${uniqueFileName}`;
 
+        // Debug: log success
+        console.log("Image uploaded successfully", { imageUrl, uploadData });
+
         return {
             statusCode: 200,
             body: JSON.stringify({ 
                 success: true,
                 imageUrl: imageUrl,
-                fileName: uniqueFileName
+                fileName: uniqueFileName,
+                uploadData
             })
         };
 
     } catch (err) {
+        console.error("Image upload failed:", err);
         return {
             statusCode: 500,
             body: JSON.stringify({ 
-                error: "Image upload failed: " + err.message 
+                error: "Image upload failed: " + err.message,
+                details: err.stack || err
             })
         };
     }

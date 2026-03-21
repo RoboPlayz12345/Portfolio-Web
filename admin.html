@@ -468,14 +468,30 @@
             <div class="admin-form-section">
                 <h2><i class="fas fa-info-circle"></i> How It Works</h2>
                 <div style="color: var(--text-dim); line-height: 1.8; font-size: 0.9rem;">
-                    <p><strong>To sync posts to GitHub:</strong></p>
+                    <p><strong style="color: var(--accent);">✓ Blog posts auto-sync to GitHub</strong></p>
+                    <p style="margin-top: 0.5rem; font-size: 0.85rem;">Posts save locally first, then upload to GitHub. If GitHub is down, posts save locally only.</p>
+                    
+                    <p style="margin-top: 1rem;"><strong style="color: var(--accent);">🔧 To enable GitHub sync:</strong></p>
                     <ol style="margin-left: 1.5rem;">
-                        <li>Go to <a href="https://github.com/settings/tokens" target="_blank" style="color: var(--accent);">GitHub Settings</a></li>
-                        <li>Create a token (classic) with <code>repo</code> scope</li>
-                        <li>Logout and login with the token</li>
+                        <li>Go to <a href="https://github.com/settings/tokens" target="_blank" style="color: #60a5fa;">GitHub Settings - Tokens</a></li>
+                        <li>Click "Generate new token (classic)"</li>
+                        <li>Select <code style="background: rgba(59,130,246,0.2); padding: 0.2rem 0.5rem; border-radius: 3px;">repo</code> scope</li>
+                        <li>Go to <a href="https://app.netlify.com" target="_blank" style="color: #60a5fa;">Netlify Site Settings</a></li>
+                        <li>Add environment variables:
+                            <ul style="margin-top: 0.5rem; margin-left: 1rem;">
+                                <li><code style="background: rgba(59,130,246,0.2); padding: 0.2rem 0.5rem;">GITHUB_TOKEN</code> = your token</li>
+                                <li><code style="background: rgba(59,130,246,0.2); padding: 0.2rem 0.5rem;">GITHUB_REPO</code> = yourname/blog-connect</li>
+                            </ul>
+                        </li>
+                        <li>Redeploy your site</li>
                     </ol>
-                    <p style="margin-top: 1rem;"><strong>Repo:</strong> RoboPlayz12345/blog-connect</p>
-                    <p style="margin-top: 0.5rem; font-size: 0.85rem;"><em>Without a GitHub token, posts save locally only.</em></p>
+                    
+                    <p style="margin-top: 1rem; padding: 1rem; background: rgba(34, 197, 94, 0.1); border-left: 2px solid #22c55e; border-radius: 4px;">
+                        <strong>✓ Repository:</strong> Create a public GitHub repo named <code>blog-connect</code> with an empty <code>posts.json</code> file
+                    </p>
+                    
+                    <p style="margin-top: 1rem;"><strong style="color: #facc15;">⚠️ Without GitHub setup:</strong></p>
+                    <p style="font-size: 0.85rem;">Posts will save locally only (this device). GitHub sync makes posts available everywhere.</p>
                 </div>
             </div>
         </div>
@@ -496,6 +512,7 @@
 <script>
 const ADMIN_PASSWORD = "robo123";
 let allPosts = [];
+let uploadedImageUrl = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('postDate').valueAsDate = new Date();
@@ -508,7 +525,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('imageInput').addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (file) {
-            document.getElementById('fileName').textContent = file.name;
+            // Validate file size (max 5MB)
+            if (file.size > 5 * 1024 * 1024) {
+                showMessage('Image must be smaller than 5MB', 'error');
+                document.getElementById('imageInput').value = '';
+                return;
+            }
+
+            document.getElementById('fileName').textContent = 'Processing...';
             const reader = new FileReader();
             reader.onload = (event) => {
                 const preview = document.getElementById('imagePreview');
@@ -551,15 +575,38 @@ function showDashboard() {
     document.getElementById('dashboardSection').classList.add('active');
 }
 
+async function uploadImageToGitHub(imageData, fileName) {
+    try {
+        const res = await fetch('/.netlify/functions/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                imageData: imageData,
+                fileName: fileName 
+            })
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to upload image');
+        }
+
+        const data = await res.json();
+        return data.imageUrl;
+    } catch (error) {
+        throw new Error('Image upload failed: ' + error.message);
+    }
+}
+
 async function addPost() {
     const title = document.getElementById('postTitle').value.trim();
     const category = document.getElementById('postCategory').value.trim();
     const date = document.getElementById('postDate').value;
     const content = document.getElementById('postContent').value.trim();
-    const image = window.selectedImageData || null;
+    const imageData = window.selectedImageData;
 
     if (!title || !category || !date || !content) {
-        showMessage('Please fill in all fields', 'error');
+        showMessage('Please fill in all fields (image is optional)', 'error');
         return;
     }
 
@@ -567,26 +614,38 @@ async function addPost() {
     btn.disabled = true;
     btn.textContent = 'Saving...';
 
-    const newPost = {
-        id: Date.now(),
-        Name: title,
-        Category: category,
-        Date: date,
-        Content: content,
-        Image: image,
-        Published: true
-    };
-
-    allPosts.unshift(newPost);
-
     try {
+        let imageUrl = null;
+
+        // Upload image if provided
+        if (imageData) {
+            btn.textContent = 'Uploading image...';
+            const fileName = title.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now() + '.png';
+            imageUrl = await uploadImageToGitHub(imageData, fileName);
+        }
+
+        const newPost = {
+            id: Date.now(),
+            Name: title,
+            Category: category,
+            Date: date,
+            Content: content,
+            Image: imageUrl,  // Store only the URL, not base64
+            Published: true
+        };
+
+        allPosts.unshift(newPost);
+
+        btn.textContent = 'Saving to GitHub...';
         await saveToGitHub(allPosts);
-        showMessage('Post saved to GitHub and visible to everyone!', 'success');
+        showMessage('✓ Post and image saved to GitHub!', 'success');
     } catch (error) {
+        // Save locally as fallback
         localStorage.setItem('blogPosts', JSON.stringify(allPosts));
-        showMessage('Saved locally only (error: ' + error.message.substring(0, 60) + ')', 'warning');
+        showMessage('⚠ Saved locally. GitHub error: ' + error.message.substring(0, 60), 'warning');
     }
 
+    // Reset form
     document.getElementById('postTitle').value = '';
     document.getElementById('postCategory').value = '';
     document.getElementById('postDate').valueAsDate = new Date();
@@ -595,6 +654,7 @@ async function addPost() {
     document.getElementById('imagePreview').style.display = 'none';
     document.getElementById('fileName').textContent = '';
     window.selectedImageData = null;
+    uploadedImageUrl = null;
 
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-save"></i> Add Post to GitHub';
@@ -608,10 +668,10 @@ async function deletePost(id) {
 
         try {
             await saveToGitHub(allPosts);
-            showMessage('Post deleted from GitHub', 'success');
+            showMessage('✓ Post deleted from GitHub', 'success');
         } catch (e) {
             localStorage.setItem('blogPosts', JSON.stringify(allPosts));
-            showMessage('Deleted locally only', 'warning');
+            showMessage('⚠ Deleted locally. GitHub error: ' + e.message.substring(0, 60), 'warning');
         }
 
         renderPostsList();
@@ -627,7 +687,7 @@ async function saveToGitHub(postsArray) {
 
     if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || 'Failed to save to GitHub');
+        throw new Error(err.error || err.message || 'Failed to save to GitHub');
     }
 
     return res.json();
@@ -661,7 +721,7 @@ function renderPostsList() {
     postsList.innerHTML = allPosts.map(post => `
         <div class="post-card">
             ${post.Image
-                ? `<img src="${post.Image}" class="post-card-image" alt="${post.Name}">`
+                ? `<img src="${post.Image}" class="post-card-image" alt="${post.Name}" onerror="this.style.display='none'">`
                 : '<div class="post-card-image" style="display:flex;align-items:center;justify-content:center;color:var(--text-dim);"><i class="fas fa-image" style="font-size:2rem;"></i></div>'
             }
             <h3>${post.Name}</h3>

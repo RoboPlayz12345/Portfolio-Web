@@ -277,6 +277,9 @@ async function loadPosts() {
             const posts = await res.json();
             allPosts = posts.filter(p => p.Published);
             renderPosts(allPosts);
+            return;
+        } else if (res.status === 404) {
+            throw new Error("Blog repository not found or posts.json doesn't exist");
         } else {
             throw new Error(`GitHub HTTP error: ${res.status}`);
         }
@@ -289,13 +292,33 @@ async function loadPosts() {
             if (localPosts) {
                 allPosts = JSON.parse(localPosts).filter(p => p.Published);
                 renderPosts(allPosts);
+                // Show info message
+                showInfoBanner('Posts loaded from local storage. GitHub sync may be down.');
             } else {
                 showNoPosts();
             }
         } catch (localErr) {
+            console.error("localStorage error:", localErr);
             showNoPosts();
         }
     }
+}
+
+function showInfoBanner(message) {
+    const container = document.querySelector('.blog-posts');
+    const banner = document.createElement('div');
+    banner.style.cssText = `
+        background: rgba(251, 146, 60, 0.2);
+        border: 1px solid rgba(251, 146, 60, 0.5);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+        color: #fed7aa;
+        font-size: 0.9rem;
+        text-align: center;
+    `;
+    banner.innerHTML = `<i class="fas fa-info-circle"></i> ${message}`;
+    container.insertBefore(banner, container.firstChild);
 }
 
 function showNoPosts() {

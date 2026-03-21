@@ -6,8 +6,6 @@
 <title>Blog Admin | Aarav Chauhan</title>
 <link rel="icon" type="image/png" href="portfoliologo.png">
 <link rel="stylesheet" href="style.css">
-<!-- Quill CSS -->
-<link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
 <style>
@@ -446,10 +444,9 @@
                     <input type="date" id="postDate">
                 </div>
 
-
                 <div class="form-group">
-                    <label for="editor-container">Content</label>
-                    <div id="editor-container" style="height: 300px; background: #fff; color: #000;"></div>
+                    <label for="postContent">Content</label>
+                    <textarea id="postContent" placeholder="Write your blog post content here..."></textarea>
                 </div>
 
                 <div class="form-group">
@@ -512,69 +509,12 @@
 
 </div>
 
-<!-- Quill JS -->
-<script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
 <script>
 const ADMIN_PASSWORD = "robo123";
-
 let allPosts = [];
 let uploadedImageUrl = null;
-const MAX_IMAGES = 5;
-let uploadedImages = [];
-let quill;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize Quill editor
-    quill = new Quill('#editor-container', {
-        theme: 'snow',
-        modules: {
-            toolbar: {
-                container: [
-                    ['bold', 'italic', 'underline'],
-                    ['image', 'link'],
-                    [{ 'list': 'ordered'}, { 'list': 'bullet' }]
-                ],
-                handlers: {
-                    image: function() {
-                        if (uploadedImages.length >= MAX_IMAGES) {
-                            alert('You can only upload up to 5 images per post.');
-                            return;
-                        }
-                        const input = document.createElement('input');
-                        input.setAttribute('type', 'file');
-                        input.setAttribute('accept', 'image/*');
-                        input.click();
-                        input.onchange = async () => {
-                            const file = input.files[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = async (e) => {
-                                // Upload to Netlify function
-                                const res = await fetch('/.netlify/functions/upload-image', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        imageData: e.target.result,
-                                        fileName: file.name
-                                    })
-                                });
-                                const data = await res.json();
-                                if (data.imageUrl) {
-                                    const range = quill.getSelection();
-                                    quill.insertEmbed(range ? range.index : 0, 'image', data.imageUrl);
-                                    uploadedImages.push(data.imageUrl);
-                                } else {
-                                    alert('Image upload failed.');
-                                }
-                            };
-                            reader.readAsDataURL(file);
-                        };
-                    }
-                }
-            }
-        }
-    });
-
     document.getElementById('postDate').valueAsDate = new Date();
 
     if (localStorage.getItem('adminLoggedIn') === 'true') {
@@ -662,10 +602,11 @@ async function addPost() {
     const title = document.getElementById('postTitle').value.trim();
     const category = document.getElementById('postCategory').value.trim();
     const date = document.getElementById('postDate').value;
-    const content = quill.root.innerHTML.trim();
+    const content = document.getElementById('postContent').value.trim();
+    const imageData = window.selectedImageData;
 
     if (!title || !category || !date || !content) {
-        showMessage('Please fill in all fields (images are optional)', 'error');
+        showMessage('Please fill in all fields (image is optional)', 'error');
         return;
     }
 
@@ -674,13 +615,22 @@ async function addPost() {
     btn.textContent = 'Saving...';
 
     try {
+        let imageUrl = null;
+
+        // Upload image if provided
+        if (imageData) {
+            btn.textContent = 'Uploading image...';
+            const fileName = title.replace(/[^a-zA-Z0-9]/g, '_') + '_' + Date.now() + '.png';
+            imageUrl = await uploadImageToGitHub(imageData, fileName);
+        }
+
         const newPost = {
             id: Date.now(),
             Name: title,
             Category: category,
             Date: date,
-            Content: content, // Store HTML content
-            Images: [...uploadedImages], // Store all image URLs used in the post
+            Content: content,
+            Image: imageUrl,  // Store only the URL, not base64
             Published: true
         };
 
@@ -688,7 +638,7 @@ async function addPost() {
 
         btn.textContent = 'Saving to GitHub...';
         await saveToGitHub(allPosts);
-        showMessage('✓ Post and images saved to GitHub!', 'success');
+        showMessage('✓ Post and image saved to GitHub!', 'success');
     } catch (error) {
         // Save locally as fallback
         localStorage.setItem('blogPosts', JSON.stringify(allPosts));
@@ -699,13 +649,12 @@ async function addPost() {
     document.getElementById('postTitle').value = '';
     document.getElementById('postCategory').value = '';
     document.getElementById('postDate').valueAsDate = new Date();
-    quill.root.innerHTML = '';
+    document.getElementById('postContent').value = '';
     document.getElementById('imageInput').value = '';
     document.getElementById('imagePreview').style.display = 'none';
     document.getElementById('fileName').textContent = '';
     window.selectedImageData = null;
     uploadedImageUrl = null;
-    uploadedImages = [];
 
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-save"></i> Add Post to GitHub';
@@ -771,8 +720,8 @@ function renderPostsList() {
 
     postsList.innerHTML = allPosts.map(post => `
         <div class="post-card">
-            ${(post.Images && post.Images.length > 0)
-                ? `<img src="${post.Images[0]}" class="post-card-image" alt="${post.Name}" onerror="this.style.display='none'">`
+            ${post.Image
+                ? `<img src="${post.Image}" class="post-card-image" alt="${post.Name}" onerror="this.style.display='none'">`
                 : '<div class="post-card-image" style="display:flex;align-items:center;justify-content:center;color:var(--text-dim);"><i class="fas fa-image" style="font-size:2rem;"></i></div>'
             }
             <h3>${post.Name}</h3>
@@ -780,7 +729,7 @@ function renderPostsList() {
                 <div><strong>Category:</strong> ${post.Category}</div>
                 <div><strong>Date:</strong> ${post.Date}</div>
             </div>
-            <div style="color:var(--text-dim);font-size:0.9rem;margin-bottom:1rem;max-height:80px;overflow:hidden;">${post.Content}</div>
+            <p style="color:var(--text-dim);font-size:0.9rem;margin-bottom:1rem;">${post.Content.substring(0, 100)}...</p>
             <div class="post-card-actions">
                 <button class="btn-delete" onclick="deletePost(${post.id})">
                     <i class="fas fa-trash"></i> Delete
